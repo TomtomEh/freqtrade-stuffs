@@ -39,11 +39,11 @@ class OBOnlyV3(IStrategy):
             "delta_ask":0.02,
             "ratio_min":1,
             "ratio_max":1.6,
-            "ratio":1.3,
+            "ratio":1.57,
             "loss_penality":0.1,
-            "profit_reward":0.01,
+            "profit_reward":0.025,
             "blend":1,
-            "log":False
+            "log":True
     }
     last_time=datetime.now()-timedelta(minutes=25)
     def bot_loop_start(self, **kwargs) -> None:
@@ -84,7 +84,15 @@ class OBOnlyV3(IStrategy):
     def get_ratio(self, pair: str,
                            rate: float, delta_bid: float, delta_ask: float) -> float:
         ob = self.dp.orderbook(pair,1000)
+
         ob_dp=order_book_to_dataframe(ob['bids'],ob['asks'])
+        if self.ob_trade["log"]:
+            dp_dir = "depth/"+pair+"/"
+            try:
+                os.makedirs(dp_dir)
+            except OSError:
+                pass
+            ob_dp.to_csv(dp_dir+"/"+int(current_time.timestamp())+".csv")
         mid_price=(ob_dp['bids'][0]+ob_dp['asks'][0])/2
         bid_cut = mid_price - mid_price*delta_bid
         ask_cut = mid_price + mid_price*delta_ask
@@ -103,19 +111,13 @@ class OBOnlyV3(IStrategy):
 
         r=self.get_ratio(pair,rate,self.ob_trade["delta_bid"],self.ob_trade["delta_ask"])
         self.ob_history[pair]=(1.0-self.ob_trade["blend"])*self.ob_history.get(pair.replace("BUSD","USDT"),0)+self.ob_trade["blend"]*r
+      
 
         if( self.ob_history[pair]> self.ob_trade["ratio"]):
-            if self.ob_trade["log"]:
-                dp_dir = "depth/"+pair+"/"
-                try:
-                    os.makedirs(dp_dir)
-                except OSError:
-                    pass
-                ob_dp.to_csv(dp_dir+"/"+current_time.strftime("buy_%m_%d_%Y_%H_%M")+".csv")
-
-                f=open("log.dry.log", "a+")
-                f.write(f"{str(current_time)} - buying {pair}  {self.ob_history[pair]} {r} {rate} \n")
-                f.close()
+            
+            #    f=open("log.dry.log", "a+")
+            #    f.write(f"{str(current_time)} - buying {pair}  {self.ob_history[pair]} {r} {rate} \n")
+            #    f.close()
             self.ob_history[pair]=0
             return True
      
