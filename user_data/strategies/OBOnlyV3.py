@@ -43,7 +43,7 @@ class OBOnlyV3(IStrategy):
             "loss_penality":0.1,
             "profit_reward":0.025,
             "blend":1,
-            "log":True
+            "log": False
     }
     last_time=datetime.now()-timedelta(minutes=25)
     def bot_loop_start(self, **kwargs) -> None:
@@ -73,7 +73,8 @@ class OBOnlyV3(IStrategy):
         if current_profit > roi_value:
             self.ob_trade["ratio"]=max(self.ob_trade["ratio_min"],self.ob_trade["ratio"]-self.ob_trade["profit_reward"])
             return 'roi'
-        if current_profit < -roi_value:
+        # shoudl try -roi_value here tu funnel trade
+        if current_profit < self.stoploss:
             self.ob_trade["ratio"]=min(self.ob_trade["ratio_max"],self.ob_trade["ratio"]+self.ob_trade["loss_penality"])
             return 'stoploss'
         r = self.get_ratio(pair,current_rate,self.ob_trade["delta_ask"],0.01)
@@ -92,7 +93,7 @@ class OBOnlyV3(IStrategy):
                 os.makedirs(dp_dir)
             except OSError:
                 pass
-            ob_dp.to_csv(dp_dir+"/"+int(current_time.timestamp())+".csv")
+            ob_dp.to_csv(dp_dir+"/"+str(int(datetime.now().timestamp()))+".csv")
         mid_price=(ob_dp['bids'][0]+ob_dp['asks'][0])/2
         bid_cut = mid_price - mid_price*delta_bid
         ask_cut = mid_price + mid_price*delta_ask
