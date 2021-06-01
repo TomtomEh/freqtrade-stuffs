@@ -84,7 +84,7 @@ class OBOnlyV3(IStrategy):
 
     def get_ratio(self, pair: str,
                            rate: float, delta_bid: float, delta_ask: float) -> float:
-        ob = self.dp.orderbook(pair,1000)
+        ob = self.dp.orderbook(pair.replace("BUSD","USDT"),1000)
 
         ob_dp=order_book_to_dataframe(ob['bids'],ob['asks'])
         if self.ob_trade["log"]:
@@ -111,7 +111,7 @@ class OBOnlyV3(IStrategy):
                            rate: float, time_in_force: str, current_time, **kwargs) -> bool:
 
         r=self.get_ratio(pair,rate,self.ob_trade["delta_bid"],self.ob_trade["delta_ask"])
-        self.ob_history[pair]=(1.0-self.ob_trade["blend"])*self.ob_history.get(pair.replace("BUSD","USDT"),0)+self.ob_trade["blend"]*r
+        self.ob_history[pair]=(1.0-self.ob_trade["blend"])*self.ob_history.get(pair,0)+self.ob_trade["blend"]*r
       
 
         if( self.ob_history[pair]> self.ob_trade["ratio"]):
