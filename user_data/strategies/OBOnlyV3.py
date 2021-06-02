@@ -22,10 +22,10 @@ class OBOnlyV3(IStrategy):
         
 
     }
-
-    stoploss = -0.01  # effectively disabled.
+    cust_stoploss = -0.01
+    stoploss = -0.02   
     counter=0
-    timeframe = '1h'
+    timeframe = '5m'
     use_sell_signal = True
     sell_profit_only = False
     # Run "populate_indicators()" only for new candle.
@@ -35,18 +35,20 @@ class OBOnlyV3(IStrategy):
     startup_candle_count: int = 0
 
     ob_history={}
+    ob_penalize={}
     ob_trade={"delta_bid":0.005,
             "delta_ask":0.02,
             "ratio_min":1,
             "ratio_max":1.6,
-            "ratio":1.57,
+            "ratio":1.3,
             "loss_penality":0.1,
-            "profit_reward":0.025,
+            "profit_reward":0.02,
             "blend":1,
             "log": False
     }
     last_time=datetime.now()-timedelta(minutes=25)
     def bot_loop_start(self, **kwargs) -> None:
+        # TODO: test if trade count == 0
         if (datetime.now()-self.last_time) > timedelta(minutes=15):
             self.last_time = datetime.now()
             self.ob_trade["ratio"]=max(self.ob_trade["ratio_min"],self.ob_trade["ratio"]-self.ob_trade["profit_reward"])
@@ -69,39 +71,62 @@ class OBOnlyV3(IStrategy):
         f=open("log.log", "a+")
         f.write(f"{current_time} - {pair} {roi_value} {current_profit} {self.ob_trade['ratio']}\n")
         f.close()
-        
-        if current_profit > roi_value:
-            self.ob_trade["ratio"]=max(self.ob_trade["ratio_min"],self.ob_trade["ratio"]-self.ob_trade["profit_reward"])
-            return 'roi'
+        result = None
+        self.ob_penalize[pair]=self.ob_penalize.get (pair,0)
+
+        if current_profit > roi_value+((trade.min_rate-trade.open_rate)/trade.open_rate):
+            result = 'roi'
         # shoudl try -roi_value here tu funnel trade
-        if current_profit < self.stoploss:
-            self.ob_trade["ratio"]=min(self.ob_trade["ratio_max"],self.ob_trade["ratio"]+self.ob_trade["loss_penality"])
-            return 'stoploss'
+            
+            
+        if current_profit < self.cust_stoploss:
+            result =  'stoploss'
         r = self.get_ratio(pair,current_rate,self.ob_trade["delta_ask"],0.01)
         if 1/r > (self.ob_trade["ratio_min"]):
-            return "ratio"
-        return None 
+            
+            result =  "ratio"
+        if result == None:
+            if current_profit < -0.005 and  self.ob_penalize[pair] == 0:
+                old_ratio=self.ob_trade["ratio"]
+                self.ob_trade["ratio"]=min(self.ob_trade["ratio_max"],self.ob_trade["ratio"]+self.ob_trade["loss_penality"])
+                self.ob_penalize[pair] =  self.ob_trade["ratio"] - old_ratio
+            if current_profit >  0.005 and self.ob_penalize[pair]  != 0:
+                self.ob_trade["ratio"]-= self.ob_penalize[pair]
+                self.ob_penalize[pair]=0
+        else:
+            if current_profit>0:
+                self.ob_trade["ratio"]=max(self.ob_trade["ratio_min"],self.ob_trade["ratio"]-self.ob_penalize[pair]-self.ob_trade["profit_reward"])
+            else:
+                self.ob_trade["ratio"]=min(self.ob_trade["ratio_max"],self.ob_trade["ratio"]+self.ob_trade["loss_penality"] -self.ob_penalize[pair])
+            self.ob_penalize[pair]=0
+
+        return result 
 
     def get_ratio(self, pair: str,
-                           rate: float, delta_bid: float, delta_ask: float) -> float:
-        ob = self.dp.orderbook(pair.replace("BUSD","USDT"),1000)
+                           rate: float, delta_bid: float, delta_ask: float, num=1000) -> float:
+        ob = self.dp.orderbook(pair.replace("BUSD","USDT"),num)
 
         ob_dp=order_book_to_dataframe(ob['bids'],ob['asks'])
         if self.ob_trade["log"]:
-            dp_dir = "depth/"+pair+"/"
+            dp_dir = "depth/"+pair[:pair.find("/")]
             try:
                 os.makedirs(dp_dir)
             except OSError:
                 pass
-            ob_dp.to_csv(dp_dir+"/"+str(int(datetime.now().timestamp()))+".csv")
+            ob_dp.to_parquet(dp_dir+"/"+str(int(datetime.now().timestamp()))+".parket")
         mid_price=(ob_dp['bids'][0]+ob_dp['asks'][0])/2
         bid_cut = mid_price - mid_price*delta_bid
         ask_cut = mid_price + mid_price*delta_ask
         bid_side=ob_dp[ob_dp['bids']>bid_cut]['b_sum']
         ask_side=ob_dp[ob_dp['asks']<ask_cut]['a_sum']
-        # some 
+        # some pairs don't have enough data. TODO:try to fetch more 
         if ask_side.count() == 1000 or bid_side.count() == 1000:
-            return False
+            if num == 1000:
+                print("fetching more")
+                return self.get_ratio(pair,rate,delta_bid,delta_ask,10*num)
+            else:
+                #return a low rate
+                return 0.5
         ask_side=ask_side.tail(1).item()
         bid_side=bid_side.tail(1).item()
 
@@ -142,7 +167,7 @@ class OBOnlyV3(IStrategy):
  
         #debugpy.breakpoint()
         
-        if random.randint(0, 10) == 0: 
+        if random.randint(0, 2) == 0: 
            self.set_df(dataframe,"buy",1)
         else:
             self.set_df(dataframe,"buy",0)
