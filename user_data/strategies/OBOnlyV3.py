@@ -38,7 +38,7 @@ class OBOnlyV3(IStrategy):
     ob_penalize={}
     ob_trade={"delta_bid":0.005,
             "delta_ask":0.02,
-            "ratio_min":1,
+            "ratio_min":1.26,
             "ratio_max":1.6,
             "ratio":1.3,
             "loss_penality":0.1,
@@ -104,34 +104,38 @@ class OBOnlyV3(IStrategy):
 
     def get_ratio(self, pair: str,
                            rate: float, delta_bid: float, delta_ask: float, num=1000) -> float:
-        ob = self.dp.orderbook(pair.replace("BUSD","USDT"),num)
+        try:
+            ob = self.dp.orderbook(pair.replace("BUSD","USDT"),num)
 
-        ob_dp=order_book_to_dataframe(ob['bids'],ob['asks'])
-        if self.ob_trade["log"]:
-            dp_dir = "depth/"+pair[:pair.find("/")]
-            try:
-                os.makedirs(dp_dir)
-            except OSError:
-                pass
-            ob_dp.to_parquet(dp_dir+"/"+str(int(datetime.now().timestamp()))+".parket")
-        mid_price=(ob_dp['bids'][0]+ob_dp['asks'][0])/2
-        bid_cut = mid_price - mid_price*delta_bid
-        ask_cut = mid_price + mid_price*delta_ask
-        bid_side=ob_dp[ob_dp['bids']>bid_cut]['b_sum']
-        ask_side=ob_dp[ob_dp['asks']<ask_cut]['a_sum']
-        # some pairs don't have enough data. TODO:try to fetch more 
-        if ask_side.count() == 1000 or bid_side.count() == 1000:
-            if num == 1000:
-                print("fetching more")
-                return self.get_ratio(pair,rate,delta_bid,delta_ask,10*num)
-            else:
-                #return a low rate
-                return 0.5
-        ask_side=ask_side.tail(1).item()
-        bid_side=bid_side.tail(1).item()
+            ob_dp=order_book_to_dataframe(ob['bids'],ob['asks'])
+            if self.ob_trade["log"]:
+                dp_dir = "depth/"+pair[:pair.find("/")]
+                try:
+                    os.makedirs(dp_dir)
+                except OSError:
+                    pass
+                ob_dp.to_parquet(dp_dir+"/"+str(int(datetime.now().timestamp()))+".parket")
+            mid_price=(ob_dp['bids'][0]+ob_dp['asks'][0])/2
+            bid_cut = mid_price - mid_price*delta_bid
+            ask_cut = mid_price + mid_price*delta_ask
+            bid_side=ob_dp[ob_dp['bids']>bid_cut]['b_sum']
+            ask_side=ob_dp[ob_dp['asks']<ask_cut]['a_sum']
+            # some pairs don't have enough data. TODO:try to fetch more 
+            if ask_side.count() == 1000 or bid_side.count() == 1000:
+                if num == 1000:
+                    print("fetching more")
+                    return self.get_ratio(pair,rate,delta_bid,delta_ask,10*num)
+                else:
+                    #return a low rate
+                    return 0.5
+            ask_side=ask_side.tail(1).item()
+            bid_side=bid_side.tail(1).item()
 
-        r=bid_side/ask_side
-        return r
+            r=bid_side/ask_side
+            return r
+        except:
+            return 0.5
+
     def confirm_trade_entry(self, pair: str, order_type: str, amount: float,
                            rate: float, time_in_force: str, current_time, **kwargs) -> bool:
 
