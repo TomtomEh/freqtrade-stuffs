@@ -7,6 +7,7 @@ import os
 from pandas import DataFrame
 from datetime import datetime, timedelta
 from freqtrade.data.converter import order_book_to_dataframe
+from freqtrade.persistence import Trade
 import random
 #import debugpy
 #debugpy.listen(5678)
@@ -17,12 +18,12 @@ class OBOnlyV3(IStrategy):
     INTERFACE_VERSION = 2
 
     cust_minimal_roi = {
-        "0": 0.01,
-        "10": 0.007
+        "0": 0.02,
+        "10": 0.012
         
 
     }
-    cust_stoploss = -0.01
+    cust_stoploss = -0.007
     stoploss = -0.02   
     counter=0
     timeframe = '5m'
@@ -32,26 +33,35 @@ class OBOnlyV3(IStrategy):
     process_only_new_candles = False
 
     # Number of candles the strategy requires before producing valid signals
-    startup_candle_count: int = 0
-
+    startup_candle_count: int = 100
+    cust_conditions={}
     ob_history={}
     ob_penalize={}
     ob_trade={"delta_bid":0.005,
             "delta_ask":0.02,
             "ratio_min":1.26,
-            "ratio_max":1.6,
-            "ratio":1.3,
+            "ratio_max":2.0,
+            "ratio":1.68,
             "loss_penality":0.1,
             "profit_reward":0.02,
             "blend":1,
             "log": False
     }
-    last_time=datetime.now()-timedelta(minutes=25)
+    last_time_reduced_ratio=datetime.now()-timedelta(minutes=25)
+    last_time_computed_indicators=datetime.now()-timedelta(hours=100)
+    
     def bot_loop_start(self, **kwargs) -> None:
         # TODO: test if trade count == 0
-        if (datetime.now()-self.last_time) > timedelta(minutes=15):
-            self.last_time = datetime.now()
-            self.ob_trade["ratio"]=max(self.ob_trade["ratio_min"],self.ob_trade["ratio"]-self.ob_trade["profit_reward"])
+        if (datetime.now()-self.last_time_reduced_ratio) > timedelta(minutes=15):
+            open_trades = Trade.get_trades([Trade.is_open.is_(True)]).all()
+
+            if len(open_trades) == 0:
+        
+                self.last_time_reduced_ratio = datetime.now()
+                self.ob_trade["ratio"]=max(self.ob_trade["ratio_min"],self.ob_trade["ratio"]-self.ob_trade["profit_reward"])
+                print(self.ob_trade["ratio"])
+        self.compute=False
+
 
            
     def min_roi_entry(self, roi_table: dict,trade_dur: int) -> float:
@@ -73,13 +83,14 @@ class OBOnlyV3(IStrategy):
         f.close()
         result = None
         self.ob_penalize[pair]=self.ob_penalize.get (pair,0)
-
-        if current_profit > roi_value+((trade.min_rate-trade.open_rate)/trade.open_rate):
+        ratio_delta=self.ob_trade["ratio"]-self.ob_trade["ratio_min"]
+        ratio_roi = roi_value/(1+1.5*(ratio_delta/(self.ob_trade["ratio_max"]-self.ob_trade["ratio_min"])))
+        if current_profit > ratio_roi+((trade.min_rate-trade.open_rate)/trade.open_rate):
             result = 'roi'
         # shoudl try -roi_value here tu funnel trade
             
             
-        if current_profit < self.cust_stoploss:
+        if current_profit < self.cust_stoploss or (current_profit>0.05 and current_profit< 0.05+((trade.max_rate-trade.open_rate)/trade.open_rate)):
             result =  'stoploss'
         r = self.get_ratio(pair,current_rate,self.ob_trade["delta_ask"],0.01)
         if 1/r > (self.ob_trade["ratio_min"]):
@@ -123,7 +134,6 @@ class OBOnlyV3(IStrategy):
             # some pairs don't have enough data. TODO:try to fetch more 
             if ask_side.count() == 1000 or bid_side.count() == 1000:
                 if num == 1000:
-                    print("fetching more")
                     return self.get_ratio(pair,rate,delta_bid,delta_ask,10*num)
                 else:
                     #return a low rate
@@ -154,8 +164,31 @@ class OBOnlyV3(IStrategy):
         return False
          
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        
 
+        if self.last_time_computed_indicators != dataframe.loc[dataframe.index.max(),"date"]:
+            print(f"{self.last_time_computed_indicators} != {dataframe.loc[dataframe.index.max(),'date']}" )
+
+            self.compute = True
+            self.last_time_computed_indicators=dataframe.loc[dataframe.index.max(),"date"]
+        if self.compute:
+
+            dataframe['ema_12'] = ta.EMA(dataframe, timeperiod=12)
+            dataframe['ema_26'] = ta.EMA(dataframe, timeperiod=26)
+            imax = dataframe.index.max()
+            conditions = []
+            conditions.append(
+                (
+                    (random.randint(0, 2) == 0) &
+                    (dataframe.loc[imax,'close'] > dataframe.loc[imax,'ema_12']) &
+                    (dataframe.loc[imax,'ema_12'] >dataframe.loc[imax,'ema_26']) &
+                    (dataframe.loc[imax,'volume'] > 0)
+                )
+            )
+            if conditions:
+                self.cust_conditions[metadata["pair"]]=True
+            else:
+                self.cust_conditions[metadata["pair"]]=False
+            
         return dataframe
     def set_df(self,dataframe,key,val):
         dataframe.loc[dataframe.index.max(),key]=val 
@@ -168,14 +201,14 @@ class OBOnlyV3(IStrategy):
         """
             
     def populate_buy_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
- 
-        #debugpy.breakpoint()
         
-        if random.randint(0, 2) == 0: 
-           self.set_df(dataframe,"buy",1)
+
+        if random.randint(0, 2) == 0 and self.cust_conditions[metadata["pair"]]:
+            self.set_df(dataframe,"buy",1)
         else:
             self.set_df(dataframe,"buy",0)
         return dataframe
+        
 
     def populate_sell_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         self.set_df(dataframe,"sell",0)
