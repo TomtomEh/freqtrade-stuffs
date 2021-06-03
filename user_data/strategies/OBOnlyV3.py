@@ -36,6 +36,7 @@ class OBOnlyV3(IStrategy):
     startup_candle_count: int = 100
     cust_conditions={}
     ob_history={}
+    use_protections = False
     ob_penalize={}
     ob_trade={"delta_bid":0.005,
             "delta_ask":0.02,
@@ -51,7 +52,6 @@ class OBOnlyV3(IStrategy):
     last_time_computed_indicators=datetime.now()-timedelta(hours=100)
     
     def bot_loop_start(self, **kwargs) -> None:
-        # TODO: test if trade count == 0
         if (datetime.now()-self.last_time_reduced_ratio) > timedelta(minutes=15):
             open_trades = Trade.get_trades([Trade.is_open.is_(True)]).all()
 
@@ -73,7 +73,6 @@ class OBOnlyV3(IStrategy):
         return roi_table[roi_entry]
 
     def custom_sell(self, pair: str, trade: 'Trade', current_time: 'datetime', current_rate: float, current_profit: float, **kwargs):
-        print("called custom sell_n")
         
         trade_dur = int((current_time.timestamp() - trade.open_date_utc.timestamp()) // 60)
 
@@ -166,11 +165,9 @@ class OBOnlyV3(IStrategy):
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
 
         if self.last_time_computed_indicators != dataframe.loc[dataframe.index.max(),"date"]:
-            print(f"{self.last_time_computed_indicators} != {dataframe.loc[dataframe.index.max(),'date']}" )
-
             self.compute = True
             self.last_time_computed_indicators=dataframe.loc[dataframe.index.max(),"date"]
-        if self.compute:
+        if self.compute and self.use_protections:
 
             dataframe['ema_12'] = ta.EMA(dataframe, timeperiod=12)
             dataframe['ema_26'] = ta.EMA(dataframe, timeperiod=26)
@@ -203,7 +200,7 @@ class OBOnlyV3(IStrategy):
     def populate_buy_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
         
 
-        if random.randint(0, 2) == 0 and self.cust_conditions[metadata["pair"]]:
+        if random.randint(0, 2) == 0 and self.cust_conditions.get(metadata["pair"],True) :
             self.set_df(dataframe,"buy",1)
         else:
             self.set_df(dataframe,"buy",0)
