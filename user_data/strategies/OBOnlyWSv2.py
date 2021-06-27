@@ -74,20 +74,21 @@ class OBOnlyWSv2(BinanceWS):
         self.min_pct[pair]=min(gain,self.min_pct.get(pair,0))
         gain2=False
         #if gain > 0.004:
-        #    lk=self.current_kline.get(pair)
-        #    if lk and float(lk["o"]) < asks[0][0]:
-        #        return
+        lk=self.current_kline.get(pair)
+        if lk and float(lk["o"]) < asks[0][0]:
+                return
        
         dyn_roi=0.007
         elapsed=datetime.now()-found_trade.open_date  
-        dyn_roi = max (0.002,0.007-0.0015*elapsed.total_seconds()/120)
+        #print(elapsed.total_seconds()/60)
+        dyn_roi = max (0.002,0.007-0.0015*elapsed.total_seconds()/60)
        
         sell=False
         #if self.max_pct[pair]>0:
         max_pct=self.max_pct[pair]
         #print(f"{pair} : max pct {max_pct} {gain}")
-        if max_pct >(dyn_roi) and gain < max_pct-0.0005:
-            #print(f"sell max pct {max_pct} {gain}")
+        if  gain >0 and max_pct >(dyn_roi) and gain < max_pct-0.0005:
+        #    print(f"sell max pct {max_pct} {gain} {dyn_roi}")
             sell=True     
         #else:
         #   if gain > dyn_roi:
@@ -97,9 +98,9 @@ class OBOnlyWSv2(BinanceWS):
         if self.min_pct[pair]<0:
             min_pct=self.min_pct[pair]
             #print(f"{pair} : min pct {min_pct} {gain}")
-            if min_pct <-0.004 and gain > min_pct+dyn_roi:
+            #if min_pct <-0.004 and gain > min_pct+dyn_roi:
                 #print(f"sell min pct {min_pct} {gain}")
-                sell=True     
+                #sell=True     
         if sell: 
             self.execute_sell(found_trade,sell_price,SellType.ROI)
         #if gain < -0.008:
@@ -163,8 +164,8 @@ class OBOnlyWSv2(BinanceWS):
         if lk and (0.8*float(lk["l"])+0.2*float(lk["o"])) > bids[0][0]:
             return
         buy1,r1=self.check_ob(pair,bids, asks,delta_bid=delta_bid,delta_ask=delta_ask,ratio=1.3)
-        buy2,r2=self.check_ob(pair,bids, asks,delta_bid=0.003,delta_ask=0.004,ratio=1.3) 
-        buy3,r3=self.check_ob(pair,bids, asks,delta_bid=0.002,delta_ask=0.002,wall=0.3,ratio=1.6)
+        buy2,r2=self.check_ob(pair,bids, asks,delta_bid=0.003,delta_ask=0.004,wall=0.3,ratio=1.3) 
+        buy3,r3=self.check_ob(pair,bids, asks,delta_bid=0.002,delta_ask=0.002,wall=0.4,ratio=1.7)
 
         #if pair == "ADA/BUSD":
         #    print(f"{datetime.now()} {pair} {r1} {r2} {r3}")
