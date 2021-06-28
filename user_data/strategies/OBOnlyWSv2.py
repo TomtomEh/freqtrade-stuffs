@@ -58,7 +58,8 @@ class OBOnlyWSv2(BinanceWS):
     min_pct={}
     buy_signal={}
     ratio={}
-    ob_bb=BB(200,2.5)
+    ob_bb=BB(300,3)
+    ob_ema=EMA(9)
     def check_sell(self,bids, asks, pair):
         sell_price=(0.1*bids[0][0]+0.9*asks[0][0])
         ob_price=(0.2*bids[0][0]+0.8*asks[0][0])
@@ -77,34 +78,48 @@ class OBOnlyWSv2(BinanceWS):
         gain2=False
         #if gain > 0.004:
         lk=self.current_kline.get(pair)
-        if lk and float(lk["o"]) < asks[0][0]:
-                return
+        #if lk and float(lk["o"]) < asks[0][0]:
+        #        return
        
         dyn_roi=0.005
         elapsed=datetime.now()-found_trade.open_date  
+        sell_price=asks[0][0]*1.001
+
+        if gain >0.004 or gain <-0.002:
+        #    print(f"max: {self.max_pct[pair]}")
+            self.execute_sell(found_trade,sell_price,SellType.CUSTOM_SELL)
+
+        if elapsed > timedelta(minutes=10) or elapsed > timedelta(minutes=5)and gain >0.002:
+            print(f"max: {self.max_pct[pair]}")
+            self.execute_sell(found_trade,sell_price,SellType.CUSTOM_SELL)
+
+        return
         #print(elapsed.total_seconds()/60)
-        dyn_roi = max (0.002,0.007-0.0015*elapsed.total_seconds()/60)
+        dyn_roi = max (0.002,0.005-0.0007*(max(0,(elapsed-timedelta(minutes=10)).total_seconds())/60))
        
         sell=False
+        
         #if self.max_pct[pair]>0:
         max_pct=self.max_pct[pair]
         #print(f"{pair} : max pct {max_pct} {gain}")
-        if  gain >0 and max_pct >(dyn_roi) and gain < max_pct-0.001:
+        if  gain >dyn_roi: #0 and max_pct >(dyn_roi) and gain < max_pct-0.0005:
         #    print(f"sell max pct {max_pct} {gain} {dyn_roi}")
-            sell=True     
+            sell_price=asks[0][0]*1.001
+            sell=True    
+
         #else:
         #   if gain > dyn_roi:
         #        sell = True
 
        
-        if self.min_pct[pair]<0:
+        if gain < -dyn_roi:
             min_pct=self.min_pct[pair]
             #print(f"{pair} : min pct {min_pct} {gain}")
             #if min_pct <-0.004 and gain > min_pct+dyn_roi:
                 #print(f"sell min pct {min_pct} {gain}")
-                #sell=True     
-        if sell: 
-            self.execute_sell(found_trade,sell_price,SellType.ROI)
+            sell=True     
+        #if sell: 
+        #   self.execute_sell(found_trade,sell_price,SellType.ROI)
         #if gain < -0.008:
         #    for trade in self.open_trades(force=True) :
         #        sell_rate = self.ft.get_sell_rate(trade.pair, True)
@@ -120,10 +135,15 @@ class OBOnlyWSv2(BinanceWS):
         #if r >1.0 and min(np.size(ask_side[:,1]),np.size(bid_side[:,1])) > 10:
         #    self.execute_sell(found_trade,sell_price,SellType.CUSTOM_SELL)
 
-        sell1,r1=self.check_ob(pair,bids=bids, asks=asks,delta_bid=0.0045,delta_ask=0.002,ratio=1.,bid_weight=0.2,reciprocal=True)
+        sell1,r1=self.check_ob(pair,bids=bids, asks=asks,delta_bid=0.003,delta_ask=0.003,ratio=1.,bid_weight=0.5)
         sell2,r2=self.check_ob(pair,bids=bids, asks=asks,delta_bid=0.002,delta_ask=0.002,ratio=1.,bid_weight=0.2,wall=-0.5,reciprocal=True)
-
-        if sell1 or sell2:
+        sell1=False
+         
+        bb=self.ob_bb
+        if len(bb)>0:      
+            if r1<2*bb[-1].lb:
+                sell1=True
+        if sell1 :
             self.execute_sell(found_trade,sell_price,SellType.CUSTOM_SELL)
     def check_ob(self,pair, bids, asks,delta_bid,delta_ask=None,wall=0.0,ratio=1.0,bid_weight=0.5,reciprocal=False):
         if delta_ask is None:
@@ -163,27 +183,36 @@ class OBOnlyWSv2(BinanceWS):
             return
         mid_price=(1*bids[0][0]+1*asks[0][0])/2
         lk=self.current_kline.get(pair)
-        if lk and (0.0*float(lk["l"])+1.*float(lk["o"])) > bids[0][0]:
-            return
+        #if lk and (0.0*float(lk["l"])+1.*float(lk["o"])) > bids[0][0]:
+        #    return
         #buy1,r1=self.check_ob(pair,bids, asks,delta_bid=delta_bid,delta_ask=delta_ask,ratio=1.3)
         #buy2,r2=self.check_ob(pair,bids, asks,delta_bid=0.003,delta_ask=0.004,wall=0.3,ratio=1.3) 
         buy2,r3=self.check_ob(pair,bids, asks,delta_bid=0.003,delta_ask=0.003,wall=0.3,ratio=1.1)
         buy3=False
 #ratio_3.append(np.sum(bid_side[:1])/np.sum(ask_side[:1]))
         bb=self.ob_bb
-        if len(bb)>0:      
-            if r3>bb[-1].ub:
+        ema=self.ob_ema
+        if len(bb)>0 and len(ema)>0:      
+            if ema[-1]>1.*bb[-1].ub:
                 buy3=True
-                
+        if len(ema)>0:      
+           
+            ema.add_input_value(r3)
+            ema.purge_oldest(1)
+        else:
+             ema.add_input_value(r3)   
+        
+        if len(bb)>0:     
+               
             bb.add_input_value(r3)
             bb.purge_oldest(1)
         else:
              bb.add_input_value(r3)   
         #if pair == "ADA/BUSD":
         #    print(f"{datetime.now()} {pair} {r1} {r2} {r3}")
-        if   buy3 and buy2:
+        if   buy3 : 
             self.buy_signal[pair]=prev_buy_signal+1
-            if self.buy_signal[pair] <3:
+            if self.buy_signal[pair] <1:
                 
                 return
             found_trade = None
