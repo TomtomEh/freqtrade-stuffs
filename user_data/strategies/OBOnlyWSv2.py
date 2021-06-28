@@ -29,6 +29,7 @@ from freqtrade.exchange.binance import Binance
 from freqtrade.constants import DEFAULT_AMOUNT_RESERVE_PERCENT, ListPairsWithTimeframes
 from freqtrade.persistence import PairLocks, Trade
 from freqtrade.strategy.interface import IStrategy, SellCheckTuple, SellType
+from talipp.indicators import EMA, SMA ,BB
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,7 @@ class OBOnlyWSv2(BinanceWS):
     min_pct={}
     buy_signal={}
     ratio={}
+    ob_bb=BB(200,2.5)
     def check_sell(self,bids, asks, pair):
         sell_price=(0.1*bids[0][0]+0.9*asks[0][0])
         ob_price=(0.2*bids[0][0]+0.8*asks[0][0])
@@ -78,7 +80,7 @@ class OBOnlyWSv2(BinanceWS):
         if lk and float(lk["o"]) < asks[0][0]:
                 return
        
-        dyn_roi=0.007
+        dyn_roi=0.005
         elapsed=datetime.now()-found_trade.open_date  
         #print(elapsed.total_seconds()/60)
         dyn_roi = max (0.002,0.007-0.0015*elapsed.total_seconds()/60)
@@ -87,7 +89,7 @@ class OBOnlyWSv2(BinanceWS):
         #if self.max_pct[pair]>0:
         max_pct=self.max_pct[pair]
         #print(f"{pair} : max pct {max_pct} {gain}")
-        if  gain >0 and max_pct >(dyn_roi) and gain < max_pct-0.0005:
+        if  gain >0 and max_pct >(dyn_roi) and gain < max_pct-0.001:
         #    print(f"sell max pct {max_pct} {gain} {dyn_roi}")
             sell=True     
         #else:
@@ -161,15 +163,25 @@ class OBOnlyWSv2(BinanceWS):
             return
         mid_price=(1*bids[0][0]+1*asks[0][0])/2
         lk=self.current_kline.get(pair)
-        if lk and (0.8*float(lk["l"])+0.2*float(lk["o"])) > bids[0][0]:
+        if lk and (0.0*float(lk["l"])+1.*float(lk["o"])) > bids[0][0]:
             return
-        buy1,r1=self.check_ob(pair,bids, asks,delta_bid=delta_bid,delta_ask=delta_ask,ratio=1.3)
-        buy2,r2=self.check_ob(pair,bids, asks,delta_bid=0.003,delta_ask=0.004,wall=0.3,ratio=1.3) 
-        buy3,r3=self.check_ob(pair,bids, asks,delta_bid=0.002,delta_ask=0.002,wall=0.4,ratio=1.7)
-
+        #buy1,r1=self.check_ob(pair,bids, asks,delta_bid=delta_bid,delta_ask=delta_ask,ratio=1.3)
+        #buy2,r2=self.check_ob(pair,bids, asks,delta_bid=0.003,delta_ask=0.004,wall=0.3,ratio=1.3) 
+        buy2,r3=self.check_ob(pair,bids, asks,delta_bid=0.003,delta_ask=0.003,wall=0.3,ratio=1.1)
+        buy3=False
+#ratio_3.append(np.sum(bid_side[:1])/np.sum(ask_side[:1]))
+        bb=self.ob_bb
+        if len(bb)>0:      
+            if r3>bb[-1].ub:
+                buy3=True
+                
+            bb.add_input_value(r3)
+            bb.purge_oldest(1)
+        else:
+             bb.add_input_value(r3)   
         #if pair == "ADA/BUSD":
         #    print(f"{datetime.now()} {pair} {r1} {r2} {r3}")
-        if  buy2 and buy3:
+        if   buy3 and buy2:
             self.buy_signal[pair]=prev_buy_signal+1
             if self.buy_signal[pair] <3:
                 
