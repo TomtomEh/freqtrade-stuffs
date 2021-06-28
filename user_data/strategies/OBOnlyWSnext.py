@@ -81,13 +81,13 @@ class OBOnlyWSnext(BinanceWS):
         dyn_roi=0.005
         elapsed=datetime.now()-found_trade.open_date  
         #print(elapsed.total_seconds()/60)
-        dyn_roi = max (0.002,0.005-0.0007*(max(0,(elapsed-timedelta(minutes=5)).total_seconds())/60))
+        dyn_roi = max (0.002,0.005-0.0007*(max(0,(elapsed-timedelta(minutes=10)).total_seconds())/60))
        
         sell=False
         #if self.max_pct[pair]>0:
         max_pct=self.max_pct[pair]
         #print(f"{pair} : max pct {max_pct} {gain}")
-        if  gain >dyn_roi:#0 and max_pct >(dyn_roi) and gain < max_pct-0.0005:
+        if  gain >dyn_roi: #0 and max_pct >(dyn_roi) and gain < max_pct-0.0005:
         #    print(f"sell max pct {max_pct} {gain} {dyn_roi}")
             sell_price=asks[0][0]*1.001
             sell=True     
@@ -96,12 +96,12 @@ class OBOnlyWSnext(BinanceWS):
         #        sell = True
 
        
-        if self.min_pct[pair]<0:
+        if gain < -dyn_roi:
             min_pct=self.min_pct[pair]
             #print(f"{pair} : min pct {min_pct} {gain}")
             #if min_pct <-0.004 and gain > min_pct+dyn_roi:
                 #print(f"sell min pct {min_pct} {gain}")
-                #sell=True     
+            sell=True     
         if sell: 
             self.execute_sell(found_trade,sell_price,SellType.ROI)
         #if gain < -0.008:
