@@ -34,10 +34,10 @@ from talipp.indicators import EMA, SMA ,BB
 logger = logging.getLogger(__name__)
 
 import numpy as np
-from pybinance import Client
-from pybinance import ThreadedWebsocketManager, ThreadedDepthCacheManager
+from binance import Client
+from binance import ThreadedWebsocketManager, ThreadedDepthCacheManager
 
-from pybinance.exceptions import BinanceAPIException
+from binance.exceptions import BinanceAPIException
 import time
 from typing import Any, Callable, Dict, List, Optional
 
