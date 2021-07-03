@@ -33,10 +33,10 @@ from freqtrade.strategy.interface import IStrategy, SellCheckTuple, SellType
 logger = logging.getLogger(__name__)
 
 import numpy as np
-from binance import Client
-from binance import ThreadedWebsocketManager, ThreadedDepthCacheManager
+from pybinance import Client
+from pybinance import ThreadedWebsocketManager, ThreadedDepthCacheManager
 
-from binance.exceptions import BinanceAPIException
+from pybinance.exceptions import BinanceAPIException
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -69,8 +69,14 @@ class OBOnlyWS(BinanceWS):
         if(found_trade == None):
             return
         gain = (mid_price-found_trade.open_rate)/found_trade.open_rate
-        sell_price=found_trade.open_rate*1.002
-        sell_price=    asks[0][0]*1.0025
+        sell_price1=found_trade.open_rate*1.002
+        sell_price2=    asks[0][0]*1.0015
+        sell_price3=    asks[0][0]
+        if sell_price3 >sell_price:
+            sell_price=sell_price3
+        else:
+            sell_price=sell_price2
+
         self.max_pct[pair]=max(gain,self.max_pct.get(pair,0))
         self.min_pct[pair]=min(gain,self.min_pct.get(pair,0))
         gain2=False
@@ -188,7 +194,7 @@ class OBOnlyWS(BinanceWS):
             with self.ft._sell_lock:
                 self.max_pct[pair]=0
                 self.min_pct[pair]=0
-                self.ft.execute_buy(pair,stake_amount,(0.8*bids[0][0]+0.2*asks[0][0]))
+                self.ft.execute_buy(pair,stake_amount,(0.9*bids[0][0]+0.1*asks[0][0]))
         else:
             self.buy_signal[pair]=0
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:         
