@@ -32,10 +32,10 @@ from freqtrade.strategy.interface import IStrategy, SellCheckTuple, SellType
 logger = logging.getLogger(__name__)
 
 import numpy as np
-from pybinance import Client
-from pybinance import ThreadedWebsocketManager, ThreadedDepthCacheManager
+from binance import Client
+from binance import ThreadedWebsocketManager, ThreadedDepthCacheManager
 
-from pybinance.exceptions import BinanceAPIException
+from binance.exceptions import BinanceAPIException
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -138,7 +138,7 @@ class BinanceWS(IStrategy):
         bids=np.array(depth_cache.get_bids())
         asks=np.array(depth_cache.get_asks())
         
-        if depth_cache.symbol == "ADABUSD" and not self.backtesting:
+        if depth_cache.symbol == "ADAUSDT" and not self.backtesting:
             bid_weight=0.5
             mid_price=(bid_weight*bids[0][0]+(1-bid_weight)*asks[0][0])
             bid_cut = mid_price - mid_price*0.015
@@ -148,8 +148,8 @@ class BinanceWS(IStrategy):
 
             np.savez(f"depth/ADA/{str(int(datetime.now().timestamp()))}.npz",asks=ask_side,bids=bid_side,ohlcv=np.array(self.ada_data))
            
-        self.check_sell(bids,asks,depth_cache.symbol.replace("/","").replace("BUSD","/BUSD"))
-        self.check_buy(bids,asks,depth_cache.symbol.replace("/","").replace("BUSD","/BUSD"))
+        self.check_sell(bids,asks,depth_cache.symbol.replace("/","").replace("USDT","/BUSD"))
+        self.check_buy(bids,asks,depth_cache.symbol.replace("/","").replace("USDT","/BUSD"))
 
     def set_ft(self,ft):
         self.ft=ft
@@ -179,17 +179,17 @@ class BinanceWS(IStrategy):
         #print(klines)
         for pair in pair_list:
             limit = custom_properties.get(pair[0],{}).get("max_depth",500)            
-            self.twm.start_kline_socket(callback=self.handle_socket_message, symbol=pair.replace("/BUSD","BUSD"),interval="1m")
+            self.twm.start_kline_socket(callback=self.handle_socket_message, symbol=pair.replace("/BUSD","USDT"),interval="1m")
             #start_aggtrade_socket
             time.sleep(0.5)
 
-            self.dcm.start_depth_cache(callback=self.handle_dcm_message, symbol=pair.replace("/BUSD","BUSD"),limit=limit)
+            self.dcm.start_depth_cache(callback=self.handle_dcm_message, symbol=pair.replace("/BUSD","USDT"),limit=limit)
             time.sleep(0.5)
         open_trades=Trade.get_open_trades()
 
     
     def handle_socket_message(self,msg):
-        pair=msg["s"].replace("BUSD","")
+        pair=msg["s"].replace("USDT","")
         k=msg["k"]
         if k["x"]:
            self.last_volume[pair+"/BUSD"]=float(msg['k']['v'])

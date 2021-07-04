@@ -33,10 +33,10 @@ from freqtrade.strategy.interface import IStrategy, SellCheckTuple, SellType
 logger = logging.getLogger(__name__)
 
 import numpy as np
-from pybinance import Client
-from pybinance import ThreadedWebsocketManager, ThreadedDepthCacheManager
+from binance import Client
+from binance import ThreadedWebsocketManager, ThreadedDepthCacheManager
 
-from pybinance.exceptions import BinanceAPIException
+from binance.exceptions import BinanceAPIException
 import time
 from typing import Any, Callable, Dict, List, Optional
 
@@ -70,13 +70,18 @@ class OBOnlyWS(BinanceWS):
             return
         gain = (mid_price-found_trade.open_rate)/found_trade.open_rate
         sell_price1=found_trade.open_rate*1.002
-        sell_price2=    asks[0][0]*1.0015
-        sell_price3=    asks[0][0]
+        elapsed=datetime.now()-found_trade.open_date  
+        elapsed_min=elapsed.total_seconds()//60
+        count_down=max(0,elapsed_min-6)        
+        ask_ratio=1.003-count_down*0.0005
+        sell_price=    asks[0][0]*(ask_ratio)
+        
+        """sell_price3=    asks[0][0]
         if sell_price3 >sell_price:
             sell_price=sell_price3
         else:
             sell_price=sell_price2
-
+        """
         self.max_pct[pair]=max(gain,self.max_pct.get(pair,0))
         self.min_pct[pair]=min(gain,self.min_pct.get(pair,0))
         gain2=False
@@ -84,6 +89,11 @@ class OBOnlyWS(BinanceWS):
         lk=self.current_kline.get(pair)
         if lk and float(lk["o"]) < asks[0][0]:
                 return
+        elapsed=datetime.now()-found_trade.open_date  
+        if elapsed < timedelta(minutes=2):
+            return
+        if gain < -0.001:
+            sell_price= asks[0][0]    
         self.execute_sell(found_trade,sell_price,SellType.ROI)
         return
         dyn_roi=0.007
@@ -179,7 +189,7 @@ class OBOnlyWS(BinanceWS):
         #    print(f"{datetime.now()} {pair} {r1} {r2} {r3}")
         if  True or buy2 and buy3:
             self.buy_signal[pair]=prev_buy_signal+1
-            if self.buy_signal[pair] <3:
+            if self.buy_signal[pair] <6:
                 
                 return
             found_trade = None
@@ -194,7 +204,7 @@ class OBOnlyWS(BinanceWS):
             with self.ft._sell_lock:
                 self.max_pct[pair]=0
                 self.min_pct[pair]=0
-                self.ft.execute_buy(pair,stake_amount,(0.9*bids[0][0]+0.1*asks[0][0]))
+                self.ft.execute_buy(pair,stake_amount,(0.3*bids[0][0]+0.7*asks[0][0]))
         else:
             self.buy_signal[pair]=0
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:         
