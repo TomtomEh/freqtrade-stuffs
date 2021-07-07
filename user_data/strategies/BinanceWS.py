@@ -39,7 +39,7 @@ from binance.exceptions import BinanceAPIException
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-import user_data.strategies.bt_data as bt_data
+import user_data.tools.bt_data as bt_data
 class BinanceWS(IStrategy):
     last_time_refresh=datetime.now()-timedelta(days=60)
     last_time_refresh_trade_count=datetime.now()-timedelta(days=60)
