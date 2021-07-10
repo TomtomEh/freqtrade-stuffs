@@ -162,7 +162,7 @@ class BinanceWS(IStrategy):
                              since_ms: Optional[int] = None, cache: bool = True
                              ) -> Dict[Tuple[str, str], DataFrame]:
         print(pair_list)
-        if (datetime.now()-self.last_time_refresh) < timedelta(minutes=30):
+        if (datetime.now()-self.last_time_refresh) < timedelta(hours=8):
             return
         self.client = Client()
         custom_properties={}

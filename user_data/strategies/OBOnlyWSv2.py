@@ -10,8 +10,9 @@ from freqtrade.data.converter import order_book_to_dataframe
 from freqtrade.persistence import Trade
 import random
 import time
-#TODO: Start from trailing from -0.002 
-#TODO: reduce buy  
+#TODO: test stoploss /bad idea. ROI ok
+#TODO: test without green/red protection, bad idea
+#todO; test BBAND?
 #todO: test walls
 #import debugpy
 #debugpy.listen(5678)
@@ -50,8 +51,6 @@ class PairInfo:
         self.min_pct=0
         self.buy_signal=0
         self.ob_bb=BB(200,2.0)
-        self.ob_bb_sell=BB(200,2.0)
-        
         self.ob_ema=EMA(9)
         self.sell_signal=0
         self.buy=False
@@ -167,31 +166,11 @@ class OBOnlyWSv2(BinanceWS):
             #print(f" pop {iv} {bb[-1].lb}")
 
             self.strat_data["ratio_ub"]=bb[-1].ub
-            #self.strat_data["ratio_lb"]=bb[-1].lb
+            self.strat_data["ratio_lb"]=bb[-1].lb
 
            
         else:
             bb.add_input_value(r2nw)   
-        bb_sell= pi.ob_bb_sell
-        if len(bb_sell)>0:      
-            iv=r2nw
-           
-            #print(f"will added {iv} {bb[-1].lb}")
-            if iv <0:
-                bb_sell.add_input_value(iv)
-            #print(f" added {iv} {bb[-1].lb}")
-
-                bb_sell.purge_oldest(1)
-            #print(f" pop {iv} {bb[-1].lb}")
-
-                #self.strat_data["ratio_ub"]=bb[-1].ub
-                self.strat_data["ratio_lb"]=bb[-1].lb
-
-           
-        else:
-            if r2nw <0:
-
-                 bb_sell.add_input_value(r2nw)       
         if len(ema)>0:      
             self.strat_data["ratio_ema"]=ema[-1]
             
@@ -267,55 +246,32 @@ class OBOnlyWSv2(BinanceWS):
         
         sell_1=False
         bb=pi.ob_bb
-        bb_sell= pi.ob_bb_sell
-
         ema=pi.ob_ema
-        sell2,r2=self.check_ob(pair,bids=bids, asks=asks,delta_bid=0.002,delta_ask=0.002,ratio=1.,bid_weight=0.5,wall=-0,reciprocal=True)
+        sell2,r2=self.check_ob(pair,bids=bids, asks=asks,delta_bid=0.002,delta_ask=0.002,ratio=1.,bid_weight=0.2,wall=-0,reciprocal=True)
         sell2=False 
         if r2 <1.0:
             sell2=True
-        r2=self.rescale(r2)  
-    
-        if len(bb_sell)>0 and len(ema)>0:  
+        if len(bb)>0 and len(ema)>0:  
            # print(f"{ema[-1]} {bb[-1].lb}")    
     
-            if r2<bb_sell[-1].lb:
+            if ema[-1] < 1.*bb[-1].lb:
                 sell_1=True
         
         
         if sell_1 and sell2:
             pi.sell_signal=prev_sell_signal+1
-            if pi.sell_signal <1:
-                
-                return
+           
             #print("should sell")    
             #print(datetime.now())
+            
             self.execute_sell(found_trade,asks[0][0],SellType.CUSTOM_SELL)
 
-        elapsed=datetime.now()-found_trade.open_date  
-        #print(elapsed.total_seconds()/60)
-        dyn_roi = max (0.002,0.02-0.0015*elapsed.total_seconds()/60)
-       
-        sell=False
-        #if self.max_pct[pair]>0:
-        max_pct=pi.max_pct
-        #print(f"{pair} : max pct {max_pct} {gain}")
-        if  gain >0 and max_pct >(dyn_roi) and gain < max_pct-0.0005:
-        #    print(f"sell max pct {max_pct} {gain} {dyn_roi}")
-            sell=True     
-        else:
-           if gain > dyn_roi:
-                sell = True
-
-       
-        if pi.min_pct<0:
-            min_pct=pi.min_pct
             #print(f"{pair} : min pct {min_pct} {gain}")
             #if min_pct <-0.004 and gain > min_pct+dyn_roi:
                 #print(f"sell min pct {min_pct} {gain}")
                 #sell=True     
-        #if sell: 
-        #    self.execute_sell(found_trade,sell_price,SellType.ROI)
+        if gain >0.003: 
+            self.execute_sell(found_trade,sell_price,SellType.ROI)
        
              
     
