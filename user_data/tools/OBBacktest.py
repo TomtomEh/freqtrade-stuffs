@@ -4,8 +4,16 @@ import sys
 sys.path.append("E:/users/e5n/nosave/perso/sw/investing/tmp/freqtrade")
 sys.path.append("E:/users/e5n/nosave/perso/sw/investing/tmp/freqtrade/user_data/strategies")
 
+import user_data.strategies.BinancePrefetch as BinancePrefetch
+from user_data.strategies.BinancePrefetch import BaseIndicator
+
+from user_data.strategies.BinancePrefetch import BaseIndicatorsManager
+
+BaseIndicatorsManager.backtesting=True
 #from OBOnlyWS import OBOnlyWS
-from OBOnlyWSv2 import OBOnlyWSv2
+from user_data.strategies.OBOnlyWSv2 import OBOnlyWSv2
+from user_data.strategies.OBOnlyWSv2bband import OBOnlyWSv2bband
+
 #from OBOnlyWSv2reverse import OBOnlyWSv2reverse
 
 #from OBOnlyWSnext import OBOnlyWSnext
@@ -13,13 +21,18 @@ from datetime import datetime,timedelta,timezone
 import os
 from threading import Lock
 import time
-import h5py
 from freqtrade.persistence import LocalTrade,Order
 
 from os import listdir
 from os.path import isfile, join
 import numpy as np
 import pandas as pd
+import asyncio
+from threading import Thread
+depth_path="../../depth/"
+def start_background_loop(loop: asyncio.AbstractEventLoop) -> None:
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
 class Wallets:
     def get_trade_stake_amount(self,pair):
         return 100    
@@ -79,7 +92,14 @@ class MyFT:
     gain=[]
     last_data= None
     last_price=0
+    end_price=0
+    def print_open_trades(self):
+        for t in self._open_trades:
+                 gain=(self.end_price-t.open_rate)/t.open_rate
+                 print(f"left open: {t.open_date} {datetime.now()}, {t.pair}, {t.open_rate}, {self.end_price}, {gain} \n")
+                     
     def check_price(self,dc,msg):
+        self.end_price=float(msg["k"]["c"]) 
         if self.last_data is not None:
             elapsed_lp=datetime.now()-self.last_data
             
@@ -94,7 +114,7 @@ class MyFT:
             for o in t.orders:
                 #print(o.status)
                 if o.status == "open":
-                    if o.order_date < datetime.now() -timedelta(minutes=2):
+                    if o.order_date < datetime.now() -timedelta(minutes=5):
                         if o.side =="buy":
                             t=self._open_trades.pop()
                             t.orders.clear() 
@@ -158,10 +178,74 @@ class MyFT:
 
 class OBBacktest:
     strat_data={}
-    
-    def __init__(self,start,end,stratClass=OBOnlyWSv2,stride=1):
-        #date_time_str = '02/08/21 19:00+02:00'
+    async def read_file(self,path):
+        input_file = open(path, 'rb')
 
+        res=[]          
+        while True:
+            header =np.fromfile(input_file,dtype="int32",count=4)
+            
+            if len(header) == 0:
+                break
+            # print(header)
+            k=header[0]
+            bids=np.fromfile(input_file,dtype="float32",count=header[1]*2).reshape(-1,2)
+            asks=np.fromfile(input_file,dtype="float32",count=header[2]*2).reshape(-1,2)
+            ohlcv=np.fromfile(input_file,dtype="float32",count=header[3])
+            ob={"bids": bids,
+                "asks": asks,
+                "ohlcv":ohlcv,
+                "t":k}
+
+            res.append(ob)
+        return res   
+    def update_indicators(self,ohlcv):
+        for key in BaseIndicatorsManager.base_indicators:
+            indicator=BaseIndicatorsManager.base_indicators[key]
+            interval= BinancePrefetch.time_map[indicator.interval]
+            reset_tmp=True
+            if hasattr(indicator,"last_time"):
+                last_full=indicator.last_time//interval
+                current_full=datetime.now().timestamp()//interval
+                tmp=indicator.temp_ohlcv
+
+                if last_full != current_full:
+                    msg={"s":f"{self.symbol}USDT",
+                          "e":"k",
+                                "k":{
+                                    "o":tmp["o"],
+                                    "h":tmp["h"],
+                                    "l":tmp["l"],
+                                    "c":tmp["c"],
+                                    "v":tmp["v"],
+                                    "x":True,
+                                    't':last_full*interval*1000,
+                                    'T':current_full*interval*1000-1,  
+                            } }
+                    indicator.process_message(msg)
+                else:
+                    reset_tmp=False
+                    tmp["h"]=max(tmp["h"],ohlcv[6])
+                    tmp["l"]=min(tmp["l"],ohlcv[7])
+                    tmp["c"]=ohlcv[8]
+                    if indicator.last_vol>ohlcv[9]:
+                        tmp['v']+=indicator.last_vol
+                        indicator.last_vol=ohlcv[9]
+
+                    
+            if reset_tmp:
+                indicator.temp_ohlcv={"o":ohlcv[5],
+                                    "h":ohlcv[6],
+                                    "l":ohlcv[7],
+                                    "c":ohlcv[8],
+                                    "v":ohlcv[9],
+                                    }
+                indicator.last_vol=ohlcv[9]                    
+            indicator.last_time=datetime.now().timestamp()
+                            
+    def __init__(self,start,end,stratClass=OBOnlyWSv2,stride=1,symbol="ADA"):
+        #date_time_str = '02/08/21 19:00+02:00'
+        self.symbol=symbol
         #date_time_str = '29/06/21 00:00+02:00'
 
         #date_time_str = '26/06/21 20:50+02:00'
@@ -174,17 +258,20 @@ class OBBacktest:
 
         start=int(start_time.timestamp())
         print(start)
+        print(end)
 
 
 
 
 
 
-        mypath="../../depth/h5/ADA/"
+
+        mypath=depth_path+f"np/{self.symbol}/"
         files = [int(os.path.splitext(f)[0]) for f in listdir(mypath) if isfile(join(mypath, f))]
         files=np.array(files)
         files=np.sort(files)
         start_file=files[files<start]
+
         if len(start_file) >0:
             start_file=start_file[-1]
         else:
@@ -201,6 +288,7 @@ class OBBacktest:
         
         ds=ds[ds<=end_file]
         ds=np.sort(ds)
+   
         conf={
                 "dry_run":True,
                 "stake_currency":"BUSD",
@@ -229,68 +317,89 @@ class OBBacktest:
             self.last_time=datetime.now()
 
             prev=None
-            i=0
             dc=bt_DepthCache()
             max_size=0
             min_size=10000000
+            n_files=len(ds)
+            if n_files==0:
+                return
+            h5=ds[0]
+            loop = asyncio.new_event_loop()
+            t = Thread(target=start_background_loop, args=(loop,), daemon=True)
+            t.start()
+            task = asyncio.run_coroutine_threadsafe(self.read_file(f"{mypath}{h5}.np"),loop )
+            ticker_i=0
+            for i in range(n_files):
+                h5=ds[i]
+                res= task.result()
+                if i<=n_files:
+                    task = asyncio.run_coroutine_threadsafe(self.read_file(f"{mypath}{h5}.np"),loop )
+                for ob in res:
+                #try:   
+                        k=ob["t"]
 
-            for h5 in ds:
-                try:
-                    hfile=h5py.File(f"{mypath}{h5}.h5", 'r') 
-
-                    keys = [int(f) for f in hfile.keys()]
-                    keys=np.array(keys)
-                    keys=np.sort(keys)
-                    
-                    for k in keys:
                         if k <start:
                             continue
                         if k > end:
                             continue
                         
-                        
-                        dc.bids=np.array(hfile.get(str(k)).get("bids"))
-                        dc.asks=np.array(hfile.get(str(k)).get("asks"))
-                        max_size=max(len(dc.bids),max_size)
-                        min_size=min(len(dc.asks),max_size)
-                        
+
+                        dc.asks=ob["asks"]
+                        dc.bids=ob["bids"]
+                        ohlcv=  ob["ohlcv"]
                         #print(f"ib {ob}")
                         frozen_datetime.move_to(datetime.fromtimestamp(k))
-                        ohlcv=np.array(hfile.get(str(k)).get("ohlcv"))
                         if ohlcv[4] == '0':
                             continue
                         if prev is  None :
                             prev=ohlcv
                         x=True
+                        msg={}
                         if np.array_equal(ohlcv[:5],prev[:5]):
-                            x=False
                         
-                        msg={"s":"ADAUSDT",
-                            "k":{
-                                "o":ohlcv[5],
-                                "h":ohlcv[6],
-                                "l":ohlcv[7],
-                                "c":ohlcv[8],
-                                "v":ohlcv[9],
-                                "V":ohlcv[9],
+                                 msg={"s":f"{self.symbol}USDT",
+                                "k":{
+                                    "o":ohlcv[5],
+                                    "h":ohlcv[6],
+                                    "l":ohlcv[7],
+                                    "c":ohlcv[8],
+                                    "v":ohlcv[9],
+                                    "V":ohlcv[9],
 
-                                "x":x  
-                            }   
-                        
-                        
-                        }
+                                    "x":False  
+                                }   
+                            
+                            
+                            }
+                        else:
+                                msg={"s":f"{self.symbol}USDT",
+                                "k":{
+                                    "o":ohlcv[0],
+                                    "h":ohlcv[1],
+                                    "l":ohlcv[2],
+                                    "c":ohlcv[3],
+                                    "v":ohlcv[4],
+                                    "V":ohlcv[4],
+
+                                    "x":True  
+                                }   
+                            
+                            
+                            }
+
+
                         elapsed=datetime.now()-self.last_time
                         if elapsed>timedelta(minutes=30)  :
                             print(datetime.now())
                             self.last_time=datetime.now()    
                         strat.handle_socket_message(msg)
                         strat.handle_dcm_message(dc)
+                        self.update_indicators(ohlcv)
                         ft.check_price(dc,msg)
                         ft.last_data=datetime.now()
                         #strat.strat_data.t=k
-                        i+=1
 
-                        if i%stride== 0:
+                        if ticker_i%stride== 0:
                             if hasattr(strat,"strat_data"):
                                 if self.strat_data.get("date") is None:
                                     self.strat_data["date"]=[]
@@ -304,14 +413,16 @@ class OBBacktest:
                                         self.strat_data[key]=[]                        
                                     self.strat_data[key].append(strat.strat_data[key])
                             #print(msg)
+                        ticker_i+=1    
                         prev=ohlcv
 
-                except Exception as e:
-                    print(e)
+                # except Exception as e:
+                #    print(e)
                     #i+=1
                     #if i >200:
                     #    break
         gain=np.array(ft.gain)
+        ft.print_open_trades()
         print(repr(gain))
         print(np.sum(gain))  
         print(f"gain {len(gain[gain>0])}")
@@ -325,12 +436,13 @@ class OBBacktest:
         return df  
 
 def run():    
-    ob=OBBacktest('29/05/21 10:50','29/07/21 15:30',stride=5*60)
+    ob=OBBacktest('06/06/21 10:50','29/07/21 15:30',stride=5*60,stratClass=OBOnlyWSv2bband)
     df=ob.get_df()
     df.to_csv("full_result.csv")
 import cProfile
         
 if __name__ == "__main__":
         #date_time_str = '26/06/21 20:50+02:00'
+        depth_path="./depth/"
         run()
         #cProfile.run('run()')

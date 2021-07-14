@@ -1,10 +1,72 @@
 import numpy as np
 import h5py
 import os
-
+import datetime
 from os import listdir
 from os.path import isfile, join
 def get_data(pair,start, end, skip=0):
+    if isinstance(start,int) == False:
+      date_time_obj = datetime.strptime(start, '%d/%m/%y %H:%M%z')
+      start=int(date_time_obj.timestamp())
+    if isinstance(end,int) == False:
+      date_time_obj = datetime.strptime(end, '%d/%m/%y %H:%M%z')
+      end=int(date_time_obj.timestamp())
+    res=[]
+    skip+=1
+    mypath=f"../../depth/np/{pair}/"
+    files = [int(os.path.splitext(f)[0]) for f in listdir(mypath) if isfile(join(mypath, f))]
+    files=np.array(files)
+    files=np.sort(files)
+    start_file=files[files<start]
+    if len(start_file) >0:
+        start_file=start_file[-1]
+    else:
+        start_file=files[0]
+
+    end_file=files[files<end]
+    if len(end_file) >0:
+        end_file=end_file[-1]
+    else:
+        end_file=files[-1]
+
+
+    ds=files[files>=start_file]
+    
+    ds=ds[ds<=end_file]
+    ds=np.sort(ds)
+    count=-1
+    for h5 in ds:
+        input_file = open(f"{mypath}{h5}.np", 'rb')
+
+        
+        while True:
+            header =np.fromfile(input_file,dtype="int32",count=4)
+            k=header[0]
+            if len(header) == 0:
+                break
+            bids=np.fromfile(input_file,dtype="float32",count=header[1])
+            asks=np.fromfile(input_file,dtype="float32",count=header[2])
+            ohlcv=np.fromfile(input_file,dtype="float32",count=header[3])
+
+            if k <start:
+                continue
+            if k > end:
+                continue
+            count+=1
+            if count % skip != 0:
+               continue
+            
+            ob={"bids":np.array (bids),
+                "asks":np.array (asks),
+                "ohlcv":np.array(ohlcv),
+                "t":k}
+            res.append(ob)
+        input_file.close()
+    return res        
+hf_arr={}
+hf_date={}
+
+def get_data_old(pair,start, end, skip=0):
     if isinstance(start,int) == False:
       date_time_obj = datetime.strptime(start, '%d/%m/%y %H:%M%z')
       start=int(date_time_obj.timestamp())

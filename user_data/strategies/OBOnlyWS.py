@@ -52,7 +52,7 @@ class OBOnlyWS(BinanceWS):
     use_sell_signal = True
     sell_profit_only = False
     # Run "populate_indicators()" only for new candle.
-    process_only_new_candles = True
+    process_only_new_candles = True 
     max_pct={}
     min_pct={}
     buy_signal={}
