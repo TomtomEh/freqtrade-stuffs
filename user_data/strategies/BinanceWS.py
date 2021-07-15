@@ -39,7 +39,7 @@ from binance.exceptions import BinanceAPIException
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-import user_data.strategies.bt_data as bt_data
+import user_data.tools.bt_data as bt_data
 class BinanceWS(IStrategy):
     last_time_refresh=datetime.now()-timedelta(days=60)
     last_time_refresh_trade_count=datetime.now()-timedelta(days=60)
@@ -145,10 +145,13 @@ class BinanceWS(IStrategy):
             ask_cut = mid_price + mid_price*0.015
             bid_side=bids[bids[:,0]>bid_cut]
             ask_side=asks[asks[:,0]<ask_cut]
-            ticker_data=self.ticker_data.get(pair.replace("/BUSD",""),None)
+            dr=pair.replace("/BUSD","")
+            ticker_data=self.ticker_data.get(dr,None)
             if ticker_data is not None:
-                ob={"asks":ask_side,"bids":bid_side,"ohlcv":np.array(ticker_data)}
-                bt_data.save(pair,int(datetime.now().timestamp()),ob)
+                #ob={"asks":ask_side,"bids":bid_side,"ohlcv":np.array(ticker_data)}
+                np.savez(f"depth/{dr}/{str(int(datetime.now().timestamp()))}.npz",asks=ask_side,bids=bid_side,ohlcv=np.array(ticker_data))
+           
+                #bt_data.save(pair,int(datetime.now().timestamp()),ob)
         self.new_ob(bids,asks,pair)
    
         self.check_sell(bids,asks,depth_cache.symbol.replace("/","").replace("USDT","/BUSD"))
@@ -163,6 +166,8 @@ class BinanceWS(IStrategy):
                              ) -> Dict[Tuple[str, str], DataFrame]:
         print(pair_list)
         if (datetime.now()-self.last_time_refresh) < timedelta(minutes=30):
+            return
+        if  self.twm is not None:
             return
         self.client = Client()
         custom_properties={}

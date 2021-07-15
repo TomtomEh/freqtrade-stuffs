@@ -10,8 +10,9 @@ from freqtrade.data.converter import order_book_to_dataframe
 from freqtrade.persistence import Trade
 import random
 import time
-#TODO: Start from trailing from -0.002 
-#TODO: reduce buy  
+#TODO: test stoploss /bad idea. ROI ok
+#TODO: test without green/red protection, bad idea
+#todO; test BBAND?
 #todO: test walls
 #import debugpy
 #debugpy.listen(5678)
@@ -19,10 +20,10 @@ import time
 """ Binance exchange subclass """
 import logging
 from typing import Any, Dict, List, Optional, Tuple
-
+import profile
 from pandas import DataFrame
 from datetime import datetime,timedelta
-
+import math
 from freqtrade.exchange import Exchange
 from freqtrade.exchange.common import retrier
 from freqtrade.exchange.binance import Binance
@@ -49,8 +50,10 @@ class PairInfo:
         self.max_pct=0
         self.min_pct=0
         self.buy_signal=0
-        self.ob_bb=BB(200,1.8)
-        self.ob_ema=EMA(9)
+        self.ob_bb=BB(200,2.0)
+        self.bb5=BB(20,2.0)
+
+        self.ob_ema=EMA(7)
         self.sell_signal=0
         self.buy=False
     @classmethod
@@ -72,6 +75,26 @@ class OBOnlyWSv2(BinanceWS):
     sell_profit_only = False
     # Run "populate_indicators()" only for new candle.
     process_only_new_candles = True
+    strat_data={
+        "ratio_buy1":0,
+        "ratio_buy2":0,
+        "ratio_buy3":0,
+        "ratio_wall":0,
+        "price":0,
+        "ratio_ema":0,
+        "ratio_ub":0,
+        "ratio_lb":0,
+        "ratio_gain":0,
+    }
+    def ob_cut(self, bids, asks,delta_bid,delta_ask=None,bid_weight=0.5):
+        if delta_ask is None:
+            delta_ask=delta_bid
+        mid_price=(bid_weight*bids[0][0]+(1-bid_weight)*asks[0][0])
+        bid_cut = mid_price - mid_price*delta_bid
+        ask_cut = mid_price + mid_price*delta_ask
+        bid_side=bids[bids[:,0]>bid_cut]
+        ask_side=asks[asks[:,0]<ask_cut] 
+        return bid_side,ask_side  
     def check_ob(self,pair, bids, asks,delta_bid,delta_ask=None,wall=0.0,ratio=1.0,bid_weight=0.5,reciprocal=False):
         if delta_ask is None:
             delta_ask=delta_bid
@@ -100,25 +123,74 @@ class OBOnlyWSv2(BinanceWS):
 
                 return True,r
         return False,r
+    def rescale(self,r):
+        if math.isnan(r) or math.isinf(r) or r==0:
+            return 1
+        if r>1:
+            return r-1
+        return -(1/r-1)   
     def new_ob(self,bids, asks, pair):
+  
         pi=PairInfo.get(pair)
 
         bb=pi.ob_bb
         ema=pi.ob_ema
-        pi.buy,r2=self.check_ob(pair,bids, asks,delta_bid=0.002,delta_ask=0.002,wall=0.4,ratio=1.7)
+        self.strat_data["price"]=mid_price=(1*bids[0][0]+1*asks[0][0])/2
 
-        if len(ema)>0:      
-           
-            ema.add_input_value(r2)
-            ema.purge_oldest(1)
-            if len(bb)>0:      
-           
-                bb.add_input_value(ema[-1])
-                bb.purge_oldest(1)
-            else:
-                bb.add_input_value(ema[-1])   
+        pi.buy,r2=self.check_ob(pair,bids, asks,delta_bid=0.002,delta_ask=0.002,wall=0.4,ratio=1.7)
+        if pi.buy:
+            self.strat_data["ratio_wall"]=1
         else:
-             ema.add_input_value(r2)
+            self.strat_data["ratio_wall"]=0
+        bid_side,ask_side=self.ob_cut( bids, asks,delta_bid=0.002)
+        mid_price=(1*bids[0][0]+1*asks[0][0])/2
+        if hasattr(pi.bb5, 'last')==False or (datetime.now()-pi.bb5.last)>timedelta(minutes=1):
+                
+                pi.bb5.add_input_value(mid_price)
+                pi.bb5.last=datetime.now()
+                
+                if len(pi.bb5)>1:
+                    self.strat_data["ratio_ub"]=pi.bb5[-1].ub
+                    self.strat_data["ratio_lb"]=pi.bb5[-1].lb
+                    pi.bb5.purge_oldest(1)
+                else:
+                    self.strat_data["ratio_ub"]=mid_price
+                    self.strat_data["ratio_lb"]=mid_price
+       
+            
+
+        no_wallb=bid_side[bid_side[:,1]<0.4*np.sum(bid_side[:,1])]
+        no_walla=ask_side[ask_side[:,1]<0.4*np.sum(ask_side[:,1])]
+
+        r2=np.sum(bid_side)/np.sum(ask_side)
+        r2=self.rescale(r2)  
+        r2nw=np.sum(no_wallb)/np.sum(no_walla)
+        r2nw=self.rescale(r2nw)  
+
+        
+        if len(bb)>0:      
+            iv=r2nw
+           
+            #print(f"will added {iv} {bb[-1].lb}")
+            bb.add_input_value(iv)
+            #print(f" added {iv} {bb[-1].lb}")
+
+            bb.purge_oldest(1)
+            #print(f" pop {iv} {bb[-1].lb}")
+
+           
+
+           
+        else:
+            bb.add_input_value(r2nw)   
+        if len(ema)>0:      
+            self.strat_data["ratio_ema"]=ema[-1]
+            
+            ema.add_input_value(r2nw)
+            ema.purge_oldest(1)
+            
+        else:
+             ema.add_input_value(r2nw)
 
     def check_buy(self,bids, asks, pair):
         pi=PairInfo.get(pair)
@@ -126,25 +198,39 @@ class OBOnlyWSv2(BinanceWS):
         prev_buy_signal=pi.buy_signal
         pi.buy_signal=0
         open_trades= self.open_trades()
+        
+        #### NO RETURN BEFORE HERE
+        
+        
         if len (open_trades) >= self.max_trades or self.no_trade_until > datetime.now():
             return
         mid_price=(1*bids[0][0]+1*asks[0][0])/2
         lk=self.current_kline.get(pair)
         if lk and (0.0*float(lk["l"])+1.*float(lk["o"])) > bids[0][0]:
             return
+        bb5=pi.bb5
+        if len(bb5)>0: 
+            bbb=bb5[-1]
+            cond1=mid_price>(bbb.cb) and mid_price<(bbb.ub) 
+            if not cond1:
+                
+                return 
+        else:
+            return           
         #buy1,r1=self.check_ob(pair,bids, asks,delta_bid=delta_bid,delta_ask=delta_ask,ratio=1.3)
         #buy2,r2=self.check_ob(pair,bids, asks,delta_bid=0.003,delta_ask=0.004,wall=0.3,ratio=1.3) 
         buy3=False
         bb=pi.ob_bb
         ema=pi.ob_ema
         if len(bb)>0 and len(ema)>0:      
-            if ema[-1] > 1.6*bb[-1].ub:
+            if ema[-1] > 1.3*bb[-1].ub:
                 buy3=True
             
-        
-        if   pi.buy and buy3 : 
+        self.strat_data["ratio_buy3"]= 1 if buy3 else 0
+
+        if   buy3 : 
             pi.buy_signal=prev_buy_signal+1
-            if pi.buy_signal <3:
+            if pi.buy_signal <1: 
                 
                 return
             found_trade = None
@@ -181,6 +267,9 @@ class OBOnlyWSv2(BinanceWS):
                 return
                 
         gain = (mid_price-found_trade.open_rate)/found_trade.open_rate
+        self.strat_data["ratio_gain"]= gain*100
+
+        pi.min_pct=min(pi.min_pct,gain)
         
         
         sell_1=False
@@ -190,41 +279,31 @@ class OBOnlyWSv2(BinanceWS):
         sell2=False 
         if r2 <1.0:
             sell2=True
-        if len(bb)>0 and len(ema)>0:      
-            if ema[-1] < 1.8*bb[-1].lb:
+        elapsed=datetime.now()-found_trade.open_date  
+        elapsed_min=elapsed.total_seconds()//60
+        elapsed_min2=max(0,elapsed_min-20)
+        factor=max(0.8,1-elapsed_min2*0.005)    
+        if len(bb)>0 and len(ema)>0:  
+           # print(f"{ema[-1]} {bb[-1].lb}")    
+    
+            if ema[-1] < 1*factor*bb[-1].lb:
                 sell_1=True
         
-        
+        sell=False
         if sell_1 and sell2:
             pi.sell_signal=prev_sell_signal+1
-            if pi.sell_signal <3:
-                
-                return
-            self.execute_sell(found_trade,mid_price,SellType.CUSTOM_SELL)
+           
+            #print("should sell")    
+            #print(datetime.now())
+            
+            #self.execute_sell(found_trade,asks[0][0],SellType.CUSTOM_SELL)
 
-        elapsed=datetime.now()-found_trade.open_date  
-        #print(elapsed.total_seconds()/60)
-        dyn_roi = max (0.002,0.02-0.0015*elapsed.total_seconds()/60)
-       
-        sell=False
-        #if self.max_pct[pair]>0:
-        max_pct=pi.max_pct
-        #print(f"{pair} : max pct {max_pct} {gain}")
-        if  gain >0 and max_pct >(dyn_roi) and gain < max_pct-0.0005:
-        #    print(f"sell max pct {max_pct} {gain} {dyn_roi}")
-            sell=True     
-        else:
-           if gain > dyn_roi:
-                sell = True
-
-       
-        if pi.min_pct<0:
-            min_pct=pi.min_pct
             #print(f"{pair} : min pct {min_pct} {gain}")
-            #if min_pct <-0.004 and gain > min_pct+dyn_roi:
+        #if pi.min_pct <-0.003 and gain > max(pi.min_pct+0.006,0.0005):
                 #print(f"sell min pct {min_pct} {gain}")
-                #sell=True     
-        if sell: 
+        #        sell=True     
+
+        if gain >0.003 or  sell:
             self.execute_sell(found_trade,sell_price,SellType.ROI)
        
              

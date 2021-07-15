@@ -44,10 +44,16 @@ def get_data(pair,start, end, skip=0):
         hfile.close()
     return res        
 hf_arr={}
+hf_last_arr={}
+
 def save(pair, t,arr):
     h=t//(60*60)
     h*=60*60
     hfile=None
+    hf_last=hf_last_arr.get(pair,0)
+    hf_last_arr[pair]=t
+    if t == hf_last:
+        return
     try:
         hfile=hf_arr.get(pair,h5py.File(f"depth/{pair}/{h}.h5", 'a'))
     except FileNotFoundError:
@@ -55,9 +61,15 @@ def save(pair, t,arr):
         os.makedirs(f"depth/{pair}/")
         hfile=hf_arr.get(pair,h5py.File(f"depth/{pair}/{h}.h5", 'a'))
 
-    hf_arr[pair]=hfile    
-    g=hfile.create_group(str(t))
-    g.create_dataset("asks",data=arr["asks"])
-    g.create_dataset("bids",data=arr["bids"])
-    g.create_dataset("ohlcv",data=arr["ohlcv"].astype("float32"))   
-    hfile.flush()
+    hf_arr[pair]=hfile 
+    try:  
+        g=hfile.create_group(str(t))
+        g.create_dataset("asks",data=arr["asks"])
+        g.create_dataset("bids",data=arr["bids"])
+        g.create_dataset("ohlcv",data=arr["ohlcv"].astype("float32"))   
+        hfile.flush()
+
+    except:
+        print(f"failed to create group {t}") 
+ 
+        pass

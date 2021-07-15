@@ -32,14 +32,14 @@ from freqtrade.strategy.interface import IStrategy, SellCheckTuple, SellType
 logger = logging.getLogger(__name__)
 
 import numpy as np
-from pybinance import Client
-from pybinance import ThreadedWebsocketManager, ThreadedDepthCacheManager
+from binance import Client
+from binance import ThreadedWebsocketManager, ThreadedDepthCacheManager
 
-from pybinance.exceptions import BinanceAPIException
+from binance.exceptions import BinanceAPIException
 import time
 from typing import Any, Callable, Dict, List, Optional
 
-
+import user_data.tools.bt_data as bt_data
 class BinanceWS(IStrategy):
     last_time_refresh=datetime.now()-timedelta(days=60)
     last_time_refresh_trade_count=datetime.now()-timedelta(days=60)
@@ -137,19 +137,22 @@ class BinanceWS(IStrategy):
 
         bids=np.array(depth_cache.get_bids())
         asks=np.array(depth_cache.get_asks())
-        
-        if depth_cache.symbol == "ADABUSD" and not self.backtesting:
+        pair=depth_cache.symbol.replace("USDT","/BUSD")
+        if self.backtesting == False:
             bid_weight=0.5
             mid_price=(bid_weight*bids[0][0]+(1-bid_weight)*asks[0][0])
             bid_cut = mid_price - mid_price*0.015
             ask_cut = mid_price + mid_price*0.015
             bid_side=bids[bids[:,0]>bid_cut]
             ask_side=asks[asks[:,0]<ask_cut]
-
-            np.savez(f"depth/ADA/{str(int(datetime.now().timestamp()))}.npz",asks=ask_side,bids=bid_side,ohlcv=np.array(self.ada_data))
-           
-        self.check_sell(bids,asks,depth_cache.symbol.replace("/","").replace("BUSD","/BUSD"))
-        self.check_buy(bids,asks,depth_cache.symbol.replace("/","").replace("BUSD","/BUSD"))
+            ticker_data=self.ticker_data.get(pair.replace("/BUSD",""),None)
+            if ticker_data is not None:
+                ob={"asks":ask_side,"bids":bid_side,"ohlcv":np.array(ticker_data)}
+                bt_data.save(pair,int(datetime.now().timestamp()),ob)
+        self.new_ob(bids,asks,pair)
+   
+        self.check_sell(bids,asks,depth_cache.symbol.replace("/","").replace("USDT","/BUSD"))
+        self.check_buy(bids,asks,depth_cache.symbol.replace("/","").replace("USDT","/BUSD"))
 
     def set_ft(self,ft):
         self.ft=ft
@@ -179,18 +182,22 @@ class BinanceWS(IStrategy):
         #print(klines)
         for pair in pair_list:
             limit = custom_properties.get(pair[0],{}).get("max_depth",500)            
-            self.twm.start_kline_socket(callback=self.handle_socket_message, symbol=pair.replace("/BUSD","BUSD"),interval="1m")
+            self.twm.start_kline_socket(callback=self.handle_socket_message, symbol=pair.replace("/BUSD","USDT"),interval="1m")
             #start_aggtrade_socket
             time.sleep(0.5)
 
-            self.dcm.start_depth_cache(callback=self.handle_dcm_message, symbol=pair.replace("/BUSD","BUSD"),limit=limit)
+            self.dcm.start_depth_cache(callback=self.handle_dcm_message, symbol=pair.replace("/BUSD","USDT"),limit=limit)
             time.sleep(0.5)
         open_trades=Trade.get_open_trades()
 
-    
+    ticker_data={}
     def handle_socket_message(self,msg):
-        pair=msg["s"].replace("BUSD","")
+        pair=msg["s"].replace("USDT","")
         k=msg["k"]
+        ticker_data=self.ticker_data.get(pair,None)
+        if ticker_data is None:
+            self.ticker_data[pair]=[0]*12
+            ticker_data=self.ticker_data[pair]
         if k["x"]:
            self.last_volume[pair+"/BUSD"]=float(msg['k']['v'])
            self.last_kline[pair+"/BUSD"]=k
@@ -198,21 +205,22 @@ class BinanceWS(IStrategy):
            self.current_kline[pair+"/BUSD"]=k
 
            self.last_volume[pair+"/BUSD"]=max(self.last_volume.get(pair+"/BUSD",0),float(msg['k']['V']))
-        if pair == "ADA":
-            if k["x"]:
-                self.ada_data[0]=k["o"]
-                self.ada_data[1]=k["h"]
-                self.ada_data[2]=k["l"]
-                self.ada_data[3]=k["c"]
-                self.ada_data[4]=k["v"]
-                self.last_volume[pair+"/BUSD"]=float(msg['k']['v'])
-            else:
-                self.last_volume[pair+"/BUSD"]=max(self.last_volume.get(pair+"/BUSD",0),float(msg['k']['V']))
-                self.ada_data[5]=k["o"]
-                self.ada_data[6]=k["h"]
-                self.ada_data[7]=k["l"]
-                self.ada_data[8]=k["c"]
-                self.ada_data[9]=k["v"]
+        if k["x"]:
+            ticker_data[0]=k["o"]
+            ticker_data[1]=k["h"]
+            ticker_data[2]=k["l"]
+            ticker_data[3]=k["c"]
+            ticker_data[4]=k["v"]
+            ticker_data[10]=k["V"]
+
+        else:
+            ticker_data[5]=k["o"]
+            ticker_data[6]=k["h"]
+            ticker_data[7]=k["l"]
+            ticker_data[8]=k["c"]
+            ticker_data[9]=k["v"]
+            ticker_data[11]=k["V"]
+
                 
     def handle_dcm_message(self,depth_cache):
         self.check(depth_cache)
