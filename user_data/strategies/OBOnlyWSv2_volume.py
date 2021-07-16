@@ -167,7 +167,7 @@ class OBOnlyWSv2(BinanceWS):
         if pi.buy:
             buy_cond.append("pi.buy")
  
-        if lk and r2>2*lk["v"] :
+        if lk and r2>2*float(lk["v"]) :
             buy3=True
             buy_cond.append("buy3")
         if len(bbp)>0 and mid_price<bbp[-1].lb:

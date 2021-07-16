@@ -72,6 +72,7 @@ class OBOnlyWSv2(BinanceWS):
     sell_profit_only = False
     # Run "populate_indicators()" only for new candle.
     process_only_new_candles = True
+<<<<<<< Updated upstream
     strat_data={
         "ratio_buy1":0,
         "ratio_buy2":0,
@@ -82,6 +83,54 @@ class OBOnlyWSv2(BinanceWS):
         "ratio_ub":0,
 
         "ratio_lb":0,
+=======
+    max_pct={}
+    min_pct={}
+    buy_signal={}
+    ratio={}
+    ob_bb=BB(300,3.3)
+    ob_ema=EMA(9)
+    def check_sell(self,bids, asks, pair):
+        sell_price=(0.1*bids[0][0]+0.9*asks[0][0])
+        ob_price=(0.2*bids[0][0]+0.8*asks[0][0])
+        mid_price=(0.5*bids[0][0]+0.5*asks[0][0])
+        found_trade= self.open_trades(pair=pair)
+        
+        if(found_trade == None):
+            return
+        found_trade= self.open_trades(force=True,pair=pair)
+        if(found_trade == None):
+            return
+        gain = (mid_price-found_trade.open_rate)/found_trade.open_rate
+        
+        self.max_pct[pair]=max(gain,self.max_pct.get(pair,0))
+        self.min_pct[pair]=min(gain,self.min_pct.get(pair,0))
+        gain2=False
+        #if gain > 0.004:
+        lk=self.current_kline.get(pair)
+        #if lk and float(lk["o"]) < asks[0][0]:
+        #        return
+       
+        dyn_roi=0.005
+        elapsed=datetime.now()-found_trade.open_date  
+        sell_price=asks[0][0]*1.001
+        bb=self.ob_bb
+
+        ema=self.ob_ema
+        b=0.5
+        """if len(bb)>0 and len(ema)>0:      
+            if ema[-1]<(b*bb[-1].lb+(1-b)*bb[-1].cb):
+                buy3=True
+                self.execute_sell(found_trade,sell_price,SellType.CUSTOM_SELL)
+        return
+        """
+        if gain < -0.003:
+            sell_price=bids[0][0]*1.0005
+
+        if gain >0.004 or gain <-0.004 or (elapsed < timedelta(minutes=5)and gain <-0.002):
+        #    print(f"max: {self.max_pct[pair]}")
+            self.execute_sell(found_trade,sell_price,SellType.CUSTOM_SELL)
+>>>>>>> Stashed changes
 
 
 

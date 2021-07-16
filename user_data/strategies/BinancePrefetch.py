@@ -33,7 +33,7 @@ def singleton(cls):
 
 @singleton
 class BaseIndicatorsManager:
-    backtesting=True
+    backtesting=False
     base_indicators={}
 
 BaseIndicatorsManager = BaseIndicatorsManager()
@@ -69,6 +69,7 @@ class BaseIndicator(Indicator):
         self.path = BaseIndicator.get_path(symbol, interval)
         BaseIndicatorsManager.base_indicators[self.path]=self
         if not BaseIndicatorsManager.backtesting:
+            print("init socket")
             self.sock=self.twm.start_kline_socket(callback=self.process_message, symbol=symbol,interval=interval)
         
         time.sleep(0.5)
