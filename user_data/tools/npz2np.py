@@ -5,7 +5,7 @@ from os import listdir
 
 from os.path import isfile, join
 
-pair="SOL"
+pair="ADA"
 mypath=f"depth/{pair}2/"
 files = [int(os.path.splitext(f)[0]) for f in listdir(mypath) if isfile(join(mypath, f))]
 files=np.array(files)

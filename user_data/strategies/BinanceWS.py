@@ -12,6 +12,7 @@ from freqtrade.data.converter import order_book_to_dataframe
 from freqtrade.persistence import Trade
 import random
 import time
+
 #import debugpy
 #debugpy.listen(5678)
 #debugpy.wait_for_client()
@@ -148,7 +149,7 @@ class BinanceWS(IStrategy):
             dr=pair.replace("/BUSD","")
             ticker_data=self.ticker_data.get(dr,None)
             if ticker_data is not None:
-                #ob={"asks":ask_side,"bids":bid_side,"ohlcv":np.array(ticker_data)}
+                ob={"asks":ask_side,"bids":bid_side,"ohlcv":np.array(ticker_data)}
                 np.savez(f"depth/{dr}/{str(int(datetime.now().timestamp()))}.npz",asks=ask_side,bids=bid_side,ohlcv=np.array(ticker_data))
            
                 #bt_data.save(pair,int(datetime.now().timestamp()),ob)

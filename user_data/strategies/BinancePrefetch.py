@@ -98,26 +98,7 @@ class BaseIndicator(Indicator):
     @staticmethod
     def get_path(symbol, interval):
         return f'{symbol.lower()}@kline_{interval}'
-"""   
-class BinancePrefetch:
-    indicators={}
-    base_indicators={}      
-    @classmethod
-    def class_init(cls):
-        cls._class_init=True
-        cls.twm = ThreadedWebsocketManager()
-        cls.twm.start()
-    def add_ta (self,ta,symbol,prefetch=True,interval="1m",min_hist=100):
-        if(BinancePrefetch._class_init == False):
-            BinancePrefetch.class_init()
-        path=Indicator.get_path(symbol, interval)
-        base=self.base_indicators.get(path)
-        if base is None:
-            base=BaseIndicator(ta,symbol,prefetch,interval)
-            self.base_indictors[path]=base²
-        base.min_hist=max(base.min_hist,min_hist)
-        ta.initialize(base)
-"""
+
 if __name__ == "__main__":
         #date_time_str = '26/06/21 20:50+02:00'
         bi=BaseIndicator("ADAUSDT")
