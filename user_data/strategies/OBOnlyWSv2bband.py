@@ -17,14 +17,14 @@ class OBOnlyWSv2bband(BinanceStream):
     INTERFACE_VERSION = 2
 
 
-    stoploss = -0.91  
+    stoploss = -0.99  
 
 
-    timeframe = '1m'
+    timeframe = '1h'
     use_sell_signal = True
     sell_profit_only = False
     # Run "populate_indicators()" only for new candle.
-    process_only_new_candles = True
+    process_only_new_candles = False
     strat_data={
         "ratio_buy1":False,
         "ratio_buy2":False,
@@ -109,12 +109,9 @@ class OBOnlyWSv2bband(BinanceStream):
         if len(bb)>0:      
             iv=r2nw
            
-            #print(f"will added {iv} {bb[-1].lb}")
             bb.add_input_value(iv)
-            #print(f" added {iv} {bb[-1].lb}")
 
             bb.purge_oldest(1)
-            #print(f" pop {iv} {bb[-1].lb}")
 
            
 
@@ -196,10 +193,8 @@ class OBOnlyWSv2bband(BinanceStream):
         found_trade= pi.open_trades(force=True,pair=pair)
         if(found_trade == None):
             return
-        print("found trade")
         if len(pi.bi.c) == 0 or  pi.bi.c[-1][-1] < asks[0][0]:
             return
-        print("check1")
                 
         gain = (mid_price-found_trade.open_rate)/found_trade.open_rate
         
@@ -232,7 +227,6 @@ class OBOnlyWSv2bband(BinanceStream):
                 pi.sell(asks[0][0])
   
 
-        print(sell_pct.get(pi.pair,0.003))
         if gain >sell_pct.get(pi.pair,0.003) or  sell:
             pi.sell(sell_price)
        
