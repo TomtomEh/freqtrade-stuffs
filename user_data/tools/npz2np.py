@@ -6,7 +6,7 @@ from os import listdir
 from os.path import isfile, join
 
 pair="ADA"
-mypath=f"depth/{pair}2/"
+mypath=f"depth/{pair}/"
 files = [int(os.path.splitext(f)[0]) for f in listdir(mypath) if isfile(join(mypath, f))]
 files=np.array(files)
 files=np.sort(files)
@@ -23,7 +23,7 @@ for f in files:
             output_file.close()
         output_file = open(f"depth/{pair}_last/{h}.np",  'ab')
  
-    arr=np.load(f"depth/{pair}2/{f}.npz")
+    arr=np.load(f"depth/{pair}/{f}.npz")
     h_prev=h
     
     asks=arr["asks"].astype(dtype="float32")   
